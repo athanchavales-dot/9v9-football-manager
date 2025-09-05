@@ -1,78 +1,96 @@
-document.addEventListener("DOMContentLoaded", () => {
-  // DOM
-  const starterList = document.getElementById("starterList");
-  const benchList = document.getElementById("benchList");
-  const teamLineUpList = document.getElementById("teamLineUpList");
-  const startersCounter = document.getElementById("startersCounter");
-  const field = document.getElementById("formationField");
-  const matchSelect = document.getElementById("matchSelect");
-  const newMatchBtn = document.getElementById("newMatch");
-  const deleteMatchBtn = document.getElementById("deleteMatch");
-  const saveFormationToMatchBtn = document.getElementById("saveFormationToMatch");
-  const putStartersBtn = document.getElementById("putStartersOnPitch");
-  const formationSelect = document.getElementById("autoFormationSelect");
+/* ==========================================================
+   SAFE PLAYER LOADER
+   Always returns a player list, even if localStorage or fetch fails
+========================================================== */
+if (!window.loadPlayersData) {
+  window.loadPlayersData = async function () {
+    // 1) customPlayers (from the Player Editor)
+    try {
+      const raw = localStorage.getItem("customPlayers");
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length) return arr;
+      }
+    } catch (e) {
+      console.warn("customPlayers parse failed", e);
+    }
 
-  const openHistoryBtn = document.getElementById("openHistory");
-  const historyModal = document.getElementById("historyModal");
-  const closeHistoryBtn = document.getElementById("closeHistory");
-  const historyListEl = document.getElementById("historyList");
+    // 2) players.json (GitHub Pages / local dev)
+    try {
+      const res = await fetch("players.json", { cache: "no-store" });
+      if (res.ok) {
+        const arr = await res.json();
+        if (Array.isArray(arr) && arr.length) return arr;
+      }
+    } catch (e) {
+      console.warn("players.json fetch failed", e);
+    }
 
-  const exportTeamBtn = document.getElementById("exportTeamBtn");
-  const importTeamInput = document.getElementById("importTeamInput");
+    // 3) Inline fallback from index.html
+    try {
+      const el = document.getElementById("playersData");
+      if (el && el.textContent.trim()) {
+        const arr = JSON.parse(el.textContent);
+        if (Array.isArray(arr) && arr.length) return arr;
+      }
+    } catch (e) {
+      console.warn("inline playersData parse failed", e);
+    }
 
-  const eventType = document.getElementById("eventType");
-  const eventPlayer = document.getElementById("eventPlayer");
-  const assistWrapper = document.getElementById("assistWrapper");
-  const assistPlayer = document.getElementById("assistPlayer");
-  const subWrapper = document.getElementById("subWrapper");
-  const subOff = document.getElementById("subOff");
-  const subOn = document.getElementById("subOn");
-  const addEventBtn = document.getElementById("addEvent");
+    return [];
+  };
+}
 
-  const matchTimer = document.getElementById("matchTimer");
-  const startTimerBtn = document.getElementById("startTimer");
-  const pauseTimerBtn = document.getElementById("pauseTimer");
-  const resetTimerBtn = document.getElementById("resetTimer");
-  const halfSelect = document.getElementById("halfSelect");
-  const halfDurationSelect = document.getElementById("halfDurationSelect");
+/* ==========================================================
+   APP INIT
+========================================================== */
+document.addEventListener("DOMContentLoaded", async () => {
+  // Load players
+  const players = await window.loadPlayersData();
 
-  const oppositionInput = document.getElementById("opposition");
-  const locationInput = document.getElementById("location");
-  const matchDateInput = document.getElementById("matchDate");
-  const saveMatchBtn = document.getElementById("saveMatch");
+  // Safety bootstrap for lineup
+  const ul = document.getElementById("teamLineUpList");
+  if (players.length && ul && ul.children.length === 0) {
+    ul.innerHTML = "";
+    players.forEach((p) => {
+      const li = document.createElement("li");
+      li.className = "lineup-item";
+      li.textContent = `#${p.number} ${p.name} — ${p.position}`;
+      ul.appendChild(li);
+    });
+  }
 
-  const saveFormationBtn = document.getElementById("saveFormation");
-  const loadFormationBtn = document.getElementById("loadFormation");
-  const clearFormationBtn = document.getElementById("clearFormation");
-  const resetPitchBtn = document.getElementById("resetPitch");
-  const clearAllBtn = document.getElementById("clearAll");
-  const removeAllPlayersBtn = document.getElementById("removeAllPlayers");
-  const flipSidesBtn = document.getElementById("flipSides");
-  const togglePitchViewBtn = document.getElementById("togglePitchView");
+  // Populate selects for events
+  const selects = ["eventPlayer", "assistPlayer", "subOff", "subOn"]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  if (selects.length) {
+    const opts =
+      `<option value="">— Select Player —</option>` +
+      players
+        .map(
+          (p, i) =>
+            `<option value="${i}">#${p.number} ${p.name}</option>`
+        )
+        .join("");
+    selects.forEach((sel) => (sel.innerHTML = opts));
+  }
 
-  const openPlayerEditorBtn = document.getElementById("openPlayerEditor");
-
-  // ... (existing implementation stays the same — formations, drag/drop, timer, event log, history, etc.)
-  // The rest of your original script content remains unchanged here.
-  // [SNIP: your existing app logic]
+  // Let Vue editor or app renderer take over
+  if (typeof window.refreshPlayersUI === "function") {
+    window.refreshPlayersUI(players);
+  } else if (typeof window.renderAll === "function") {
+    window.renderAll();
+  }
 });
 
-/* ====== (Your existing script content continues here — unchanged) ====== */
-/* ... the full original file content remains here ... */
-/* (Search/replace note: I didn't remove or alter any of your existing functions.) */
-
-
-/* ===== EXPORT / IMPORT PLAYERS (Backup / Restore) =====
-   This block adds two buttons ("Export Players", "Import Players")
-   into the .backup-controls bar in the header. It works with:
-   - localStorage "customPlayers" (from the Vue Player Editor)
-   - window.loadPlayersData() fallback (players.json / inline)
-*/
+/* ==========================================================
+   EXPORT / IMPORT PLAYERS
+========================================================== */
 (function initBackupControls() {
   function ensureBackupControls() {
     let container = document.querySelector(".backup-controls");
     if (!container) {
-      // create one near header if missing
       const header = document.querySelector("header .shell") || document.body;
       container = document.createElement("div");
       container.className = "backup-controls";
@@ -93,12 +111,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.length) exported = arr;
       }
-    } catch { }
+    } catch {}
     if (!exported.length && typeof window.loadPlayersData === "function") {
       try {
         const arr = await window.loadPlayersData();
         if (Array.isArray(arr) && arr.length) exported = arr;
-      } catch { }
+      } catch {}
     }
     if (!Array.isArray(exported)) exported = [];
 
@@ -108,7 +126,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const dd = String(stamp.getDate()).padStart(2, "0");
     const filename = `players-backup-${yyyy}${mm}${dd}.json`;
 
-    const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(exported, null, 2)], {
+      type: "application/json",
+    });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -128,31 +148,32 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("The file doesn't look like a valid players list.");
         return;
       }
-      const normalized = data.map(p => ({
+      const normalized = data.map((p) => ({
         number: Number(p.number) || 0,
         name: String(p.name || "").trim(),
         position: String(p.position || "MID"),
         altPosition: String(p.altPosition || "DEF"),
-        photo: p.photo || ""
+        photo: p.photo || "",
       }));
       localStorage.setItem("customPlayers", JSON.stringify(normalized));
       if (typeof window.refreshPlayersUI === "function") {
         window.refreshPlayersUI(normalized);
+      } else if (typeof window.renderAll === "function") {
+        window.renderAll();
       } else {
-        // Try to refresh common UI areas without a full reload
-        if (typeof window.renderAll === "function") window.renderAll();
-        else location.reload();
+        location.reload();
       }
       alert("✅ Players imported.");
     } catch (e) {
       console.error(e);
-      alert("Couldn't import that file. Make sure it's a JSON export from this app.");
+      alert(
+        "Couldn't import that file. Make sure it's a JSON export from this app."
+      );
     }
   }
 
   // Build UI
   const container = ensureBackupControls();
-  // Avoid duplicating if this script executes more than once
   if (!container.querySelector("#exportPlayersBtn")) {
     const exportBtn = document.createElement("button");
     exportBtn.id = "exportPlayersBtn";
