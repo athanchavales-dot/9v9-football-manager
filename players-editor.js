@@ -196,6 +196,12 @@
       },
       save() {
         localStorage.setItem("customPlayers", JSON.stringify(this.players));
+        try {
+          if (typeof window.onPlayersSaved === "function") {
+            window.onPlayersSaved(JSON.parse(localStorage.getItem("customPlayers") || "[]"));
+          }
+        } catch (_) { }
+
         if (typeof window.refreshPlayersUI === "function") {
           window.refreshPlayersUI(this.players);
         }
